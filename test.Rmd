@@ -1,0 +1,126 @@
+---
+title: "Practical Machine Learning Project"
+author: "Joel Goodbody"
+date: "November 12, 2016"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Background
+
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+We will use the data in this training set (https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) to predict the classe variable (A, B, C, D, E) for the data in this testing set (https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv). This classe variable is in the training set, and signifies the manner in which the participants performed the exercise. We are attempting to accurately predict how the participants in the testing set performed the dumbbell exercise.
+
+#### Data Citation
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13). Stuttgart, Germany: ACM SIGCHI, 2013.
+
+### Importing and cleaning data
+
+First we load the libraries needed for this project. They are already installed on our workstation.
+
+```{r message=FALSE, warning=FALSE}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(e1071)
+library(rattle)
+```
+
+Then we import the data, creating NAs wherever the data is missing or unusable.
+
+```{r}
+train_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training <- read.csv(url(train_url), na.strings = c("NA","#DIV/0!","")) 
+testing <- read.csv(url(test_url), na.strings = c("NA","#DIV/0!",""))
+```
+
+We then remove the first 5 columns of data for each set, since these variables are not useful for prediction. They are the user id and various timestamp data.
+
+```{r}
+training <- training[,6:160]
+testing <- testing[,6:160]
+```
+
+Next, we get rid of all the columns filled with NAs, since they won't help us.
+
+```{r}
+training <- training[,colSums(is.na(training))==0]
+testing <- testing[,colSums(is.na(testing))==0]
+```
+
+We are left with 55 variables in each data set. In the training set, the final column is not used for prediction, since it is the `classe` variable. The final column in the testing set is the `problem_id` variable, which is also not used for prediction.
+
+```{r}
+dim(training)
+dim(testing)
+```
+
+### Splitting data
+
+We use a typical 70/30 split to separate our training set into training and validation sets.
+
+```{r}
+set.seed(5555)
+inTrain <- createDataPartition(y=training$classe, p=0.7,list=FALSE)
+train <- training[inTrain,]
+valid <- training[-inTrain,]
+```
+
+### Classification Tree Model
+
+We decided to only use 3-fold cross validation to save computation time, especially due to the large amount of variables.
+
+```{r}
+fittree <- train(classe ~ ., data = train, method = "rpart", trControl = trainControl(method = "cv", number = 3))
+print(fittree, digits = 4)
+```
+
+```{r}
+fancyRpartPlot(fittree$finalModel)
+```
+
+Simply by looking at this classification tree, one can infer that this is not an accurate model. There is no D classe variable shown at the bottom of the plot. We go ahead and look at just how badly this model predicts the classe variable in the validation set.
+
+```{r} 
+predicttree <- predict(fittree,valid)
+conftree <- confusionMatrix(valid$classe, predicttree)
+conftree
+```
+
+As seen in the confusion matrix results, the accuracy is not good (47.54%). From this accuracy percentage, we can infer that the out-of-sample error should be expected to be 52.46%. We need to find a better model. 
+
+### Random Forest Model
+
+We decide to try a random forest model next, using the same 3-fold cross validation.
+
+```{r}
+fitrf <- train(classe ~ ., data = train, method = "rf", trControl = trainControl(method = "cv", number = 3))
+print(fitrf, digits = 4)
+```
+
+The results for this random forest model are much more promising.
+
+```{r} 
+predictrf <- predict(fitrf,valid)
+confrf <- confusionMatrix(valid$classe, predictrf)
+confrf
+```
+
+These confusion matrix results display a 99.81% accuracy when the random forest model is applied to the validation data set. This means the out-of-sample error rate can be expected to be 0.19%. This is fantastic! The model did take a few minutes to be trained using a relatively powerful computer, though. Undoubtedly, this model could be trained using fewer variables, but the accuracy is so high that we could not bring ourselves to do more data digging to find the best variables to use. 
+
+Finally, this random forest model was used to predict the classe variable in the test data set.
+
+```{r}
+predict(fitrf, testing)
+```
+
+This resulted in 100% correct predictions in the Week 4 Quiz. Success!
